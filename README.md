@@ -1,9 +1,14 @@
 # codex-mimo-shim
 
-`codex-mimo-shim` is distributed as **closed-source binaries**.
+A tiny Rust Responses-to-Chat shim for Codex CLI and Xiaomi MiMo.
 
-This public repository is used for binary releases, release workflow review, verification materials, configuration examples, security policy, and issue tracking. The source code is maintained in a private repository.
+It is intentionally narrower than RelayForge:
 
+```text
+Codex CLI / Responses client
+-> local /v1/responses
+-> Xiaomi MiMo Chat Completions
+```
 
 ## Features and Limitations / 功能与限制
 
@@ -15,9 +20,9 @@ This public repository is used for binary releases, release workflow review, ver
 
 ### Recommended codex-cli version / 推荐的 codex-cli 版本
 
-This project is recommended to be used with `codex-cli` version `0.116.0` (the latest version, `0.130.0`, has been tested).
+This project is recommended to be used with `codex-cli` version `0.116.0` (`0.130.0` has also been tested).
 
-本项目建议搭配 `codex-cli` `0.116.0` 版本使用（最新版本`0.130.0`已经测试）。
+本项目建议搭配 `codex-cli` `0.116.0` 版本使用（`0.130.0` 也已经测试）。
 
 ```bash
 npm install -g @openai/codex@0.116.0
@@ -36,78 +41,195 @@ npm install -g @openai/codex@0.116.0
   </tr>
 </table>
 
+## Scope
 
-## Distribution model
-
-```text
-public distribution repo
-  -> manual release workflow
-  -> clone private source with restricted read token
-  -> inject public build.rs
-  -> build with locked Cargo dependencies
-  -> publish release artifacts + checksums + build metadata
-```
-
-This repository does **not** claim that closed-source software can be independently proven attack-free. Instead, the release process is designed to provide:
+Supports:
 
 ```text
-- tamper-evidence
-- dependency traceability
-- release integrity checks
-- reviewable release workflow
-- build fingerprint visibility
+GET  /healthz
+GET  /v1/models
+POST /v1/responses
+GET  /v1/responses/{response_id}
 ```
 
-## Release transparency
+Explicitly handled but unsupported:
 
-Each release publishes:
+```text
+POST /v1/responses/compact -> 501 compact_not_supported
+```
+
+`/v1/responses/compact` is a Codex remote-compaction control-plane request. This shim does not forward it to Xiaomi and does not emulate compaction in v0.1.9.
+
+Main behavior:
+
+```text
+Responses input               -> Chat Completions messages
+instructions                  -> system message
+max_output_tokens             -> max_tokens
+temperature / top_p           -> passthrough, or config defaults
+tools:function                -> Chat Completions tools
+Chat tool_calls               -> Responses function_call items
+function_call_output          -> Chat tool message
+previous_response_id          -> in-memory continuation
+MiMo reasoning_content        -> stored and replayed when thinking mode is enabled
+stream=true                   -> buffered Responses SSE
+```
+
+Not included:
+
+```text
+multi backend
+legacy proxy
+flight recorder
+context footprint
+cache
+local MCP execution
+Codex MCP config loading
+provider routing
+compact emulation
+```
+
+## Build
+
+```bash
+cargo build --release
+```
+
+## Configuration
+
+Configuration is file-first.
+
+Lookup order:
+
+```text
+1. --config /path/to/config.yaml
+2. --config=/path/to/config.yaml
+3. ./config.yaml
+4. ./config.yml
+5. ./config.json
+6. built-in defaults
+```
+
+Environment variables are **not** the general configuration surface. Only API-key sensitive overrides are read:
+
+```bash
+MIMO_API_KEY
+AK_XIAOMIMIMO_TKP
+XIAOMIMIMO_API_KEY
+```
+
+All other options belong in `config.yaml` or `config.json`.
+
+Copy the example config:
+
+```bash
+cp config/config.example.yaml config.yaml
+```
+
+Minimal `config.yaml`:
+
+```yaml
+server:
+  host: 127.0.0.1
+  port: 33300
+
+upstream:
+  base_url: https://token-plan-cn.xiaomimimo.com/v1
+  api_key: NO-KEY
+  model: mimo-v2.5-pro
+  models:
+    - mimo-v2.5-pro
+  aliases:
+    codex-auto-review: mimo-v2.5-pro
+  fallback_unknown_model_to_default: true
+  thinking:
+    enabled: true
+
+generation:
+  default_temperature: 0.2
+  default_top_p: 0.95
+  default_max_output_tokens: 4096
+
+http:
+  request_timeout_secs: 300
+  trust_env: false
+  http2_prior_knowledge: false
+
+behavior:
+  access_log: true
+  response_store_max: 1000
+  forward_parallel_tool_calls: true
+
+log:
+  level: codex_mimo_shim=info,tower_http=warn
+```
+
+Run:
+
+```bash
+./target/release/codex-mimo-shim --config config.yaml
+```
+
+Or rely on `./config.yaml` auto-discovery:
+
+```bash
+./target/release/codex-mimo-shim
+```
+
+## Codex config
+
+```toml
+model = "mimo-v2.5-pro"
+model_provider = "xiaomi-mimo"
+
+[model_providers.xiaomi-mimo]
+name = "Xiaomi MiMo via codex-mimo-shim"
+base_url = "http://127.0.0.1:33300/v1"
+wire_api = "responses"
+api_key = "no-api-key"
+experimental_bearer_token = "no-api-key"
+```
+
+## Access log
+
+Access log defaults to enabled and does not print prompt/body/tool result.
+
+Example:
+
+```text
+mimo-shim-in  unstream=true path=/v1/responses trace_id=TRC-7F4A1C2D...
+mimo-shim-out unstream=true path=/v1/responses trace_id=TRC-7F4A1C2D... model=codex-auto-review provider_model=mimo-v2.5-pro model_route=configured_alias obs_usage=provider_usage obs_input_tokens=123 obs_output_tokens=45 obs_total_tokens=168 obs_cached_tokens=- obs_reasoning_tokens=- provider_ms=2380 total_ms=2415 status=200 error=-
+```
+
+When Codex triggers remote compaction, the shim returns a local unsupported response instead of a misleading upstream 502:
+
+```text
+mimo-shim-in  unstream=true path=/v1/responses/compact trace_id=TRC-7F4A1C2D...
+mimo-shim-out unstream=true path=/v1/responses/compact trace_id=TRC-7F4A1C2D... model=codex-auto-review provider_model=- model_route=unsupported_codex_control_plane_request obs_usage=- obs_input_tokens=- obs_output_tokens=- obs_total_tokens=- obs_cached_tokens=- obs_reasoning_tokens=- provider_ms=0 total_ms=0 status=501 error="unsupported feature: /v1/responses/compact is a Codex remote compaction control-plane request; codex-mimo-shim does not emulate compact and does not forward it to Xiaomi"
+```
+
+Trace id resolution order:
+
+```text
+metadata.trace_id
+trace_id
+metadata.request_id
+request_id
+x-request-id
+Rust-generated TRC-<uuid>
+```
+
+## Release artifacts
+
+The GitHub Actions workflow builds directly from the source in this repository and publishes:
 
 ```text
 - platform-specific archives for Windows, Linux, and macOS
-- the Cargo.lock used for dependency locking
-- the SHA256 of Cargo.lock
-- the public build.rs injected during build
-- the SHA256 of build.rs
-- the public release workflow used for official builds
-- the SHA256 of the release workflow
 - SHA256 checksums for release artifacts
+- Cargo.lock and Cargo.lock.sha256
+- build.rs and build.rs.sha256
+- release.yml and release.yml.sha256
 - platform-specific build-info JSON files
-```
-
-The executable may report embedded build fingerprints through `--version` or `--build-info` if the private source has integrated the metadata output hook.
-
-## Official release assets
-
-A release typically contains:
-
-```text
-codex-mimo-shim-vX.Y.Z-windows-x86_64.zip
-codex-mimo-shim-vX.Y.Z-linux-x86_64.tar.gz
-codex-mimo-shim-vX.Y.Z-macos-arm64.tar.gz
-sha256sums.txt
-Cargo.lock
-Cargo.lock.sha256
-build.rs
-build.rs.sha256
-release.yml
-release.yml.sha256
-build-info-windows-x86_64.json
-build-info-linux-x86_64.json
-build-info-macos-arm64.json
-```
-
-The packaged archive for each target usually contains:
-
-```text
-codex-mimo-shim(.exe on Windows)
-config.example.yaml
-config.example.json
-README.txt
-VERIFY.txt
-SECURITY.txt
-build-info.json
-Cargo.lock
-Cargo.lock.sha256
 ```
 
 ## Verify a release
@@ -117,20 +239,3 @@ See [VERIFY.md](VERIFY.md).
 ## Security policy
 
 See [SECURITY.md](SECURITY.md).
-
-## Build metadata injector
-
-The public [`build.rs`](build.rs) is injected into the private Rust source during the official release workflow. It does not calculate hashes itself and has no extra Rust crate dependencies. The workflow calculates hashes and passes them into the build through compile-time environment variables.
-
-Private source can read these values with:
-
-```rust
-option_env!("BUILD_CARGO_LOCK_SHA256").unwrap_or("unknown")
-option_env!("BUILD_CI_WORKFLOW_SHA256").unwrap_or("unknown")
-option_env!("BUILD_PUBLIC_BUILD_RS_SHA256").unwrap_or("unknown")
-option_env!("BUILD_SOURCE_REF").unwrap_or("unknown")
-```
-
-## Closed-source notice
-
-This repository is a distribution repository. It intentionally does not contain the private Rust source code.

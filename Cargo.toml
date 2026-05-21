@@ -1,0 +1,33 @@
+[package]
+name = "codex-mimo-shim"
+version = "0.1.9"
+edition = "2024"
+description = "Tiny Responses-to-Chat shim for Codex CLI and Xiaomi MiMo."
+license = "MIT"
+
+[dependencies]
+anyhow = "1.0"
+axum = "0.8"
+futures-util = "0.3"
+http = "1.2"
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls", "http2"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+serde_yaml = "0.9"
+thiserror = "2.0"
+time = { version = "0.3", features = ["formatting", "macros"] }
+tokio = { version = "1.43", features = ["macros", "rt-multi-thread", "signal"] }
+tokio-stream = "0.1"
+tower-http = { version = "0.6", features = ["trace", "cors"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+uuid = { version = "1.12", features = ["v4", "serde"] }
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = "symbols"
+incremental = false
+debug = false
