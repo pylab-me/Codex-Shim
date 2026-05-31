@@ -2,63 +2,65 @@ use reqwest::{Client, StatusCode};
 use serde_json::Value;
 use tracing::debug;
 
-use super::schema::ChatResult;
-use crate::config::AppConfig;
 use crate::error::ShimError;
 
+/// A generic OpenAI-compatible API client.
+/// Works with any provider that implements `/chat/completions`.
 #[derive(Clone)]
-pub struct XiaomiClient {
+pub struct ProviderClient {
     client: Client,
-    config: AppConfig,
+    base_url: String,
+    api_key: String,
 }
 
-impl XiaomiClient {
-    pub fn new(config: AppConfig) -> anyhow::Result<Self> {
+impl ProviderClient {
+    /// Create a new client with a properly configured reqwest backend.
+    pub fn new(
+        base_url: &str,
+        timeout_secs: u64,
+        user_agent: &str,
+        trust_env: bool,
+        http2_prior_knowledge: bool,
+    ) -> anyhow::Result<Self> {
         let mut builder = Client::builder()
-            .timeout(config.request_timeout)
-            .user_agent(config.user_agent.clone())
-            .no_proxy();
-        if config.trust_env {
-            // reqwest trusts env proxies by default. The explicit branch documents intent.
-            builder = Client::builder()
-                .timeout(config.request_timeout)
-                .user_agent(config.user_agent.clone());
+            .timeout(std::time::Duration::from_secs(timeout_secs))
+            .user_agent(user_agent);
+        if !trust_env {
+            builder = builder.no_proxy();
         }
-        if config.http2_prior_knowledge {
+        if http2_prior_knowledge {
             builder = builder.http2_prior_knowledge();
         }
         Ok(Self {
             client: builder.build()?,
-            config,
+            base_url: base_url.trim_end_matches('/').to_string(),
+            api_key: String::new(),
         })
     }
 
+    /// Set or update the API key.
+    pub fn set_api_key(&mut self, key: String) {
+        self.api_key = key;
+    }
+
+    /// Send a chat completions request to the provider.
     pub async fn chat_completions(&self, payload: Value) -> Result<ChatResult, ShimError> {
-        let url = format!(
-            "{}/chat/completions",
-            self.config.mimo_base_url.trim_end_matches('/')
-        );
+        let url = format!("{}/chat/completions", self.base_url);
         let request = self
             .client
             .post(&url)
-            .bearer_auth(&self.config.mimo_api_key)
+            .bearer_auth(&self.api_key)
             .header("accept", "application/json")
             .header("content-type", "application/json")
             .json(&payload);
 
-        let response = request
-            .send()
-            .await
-            .map_err(|err| ShimError::Transport(err.to_string()))?;
+        let response = request.send().await.map_err(|err| ShimError::Transport(err.to_string()))?;
         let status = response.status();
-        let body = response
-            .text()
-            .await
-            .map_err(|err| ShimError::Transport(err.to_string()))?;
+        let body = response.text().await.map_err(|err| ShimError::Transport(err.to_string()))?;
         debug!(
             status = status.as_u16(),
             body = %body,
-            "xiaomi upstream raw response"
+            "provider upstream raw response"
         );
         if !status.is_success() {
             return Err(ShimError::Provider(format!("{} {}", status.as_u16(), body)));
@@ -80,10 +82,8 @@ impl XiaomiClient {
             .get("message")
             .cloned()
             .ok_or_else(|| ShimError::Provider("missing choices[0].message".to_string()))?;
-        let finish_reason = choice
-            .get("finish_reason")
-            .and_then(Value::as_str)
-            .map(ToOwned::to_owned);
+        let finish_reason =
+            choice.get("finish_reason").and_then(Value::as_str).map(ToOwned::to_owned);
         let usage = raw.get("usage").cloned();
         Ok(ChatResult {
             raw,
@@ -92,4 +92,13 @@ impl XiaomiClient {
             usage,
         })
     }
+}
+
+/// Parsed chat completion result from any OpenAI-compatible provider.
+#[derive(Debug)]
+pub struct ChatResult {
+    pub raw: Value,
+    pub message: Value,
+    pub finish_reason: Option<String>,
+    pub usage: Option<Value>,
 }

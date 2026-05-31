@@ -1,32 +1,58 @@
 [package]
-name = "codex-mimo-shim"
-version = "0.1.9"
+name = "codex-shim"
+version = "0.3.2"
 edition = "2024"
-description = "Tiny Responses-to-Chat shim for Codex CLI and Xiaomi MiMo."
+description = "Tiny Responses-to-Chat shim for Codex CLI."
 license = "MIT"
 
+[lib]
+name = "codex_shim"
+path = "src/lib.rs"
+
+[[bin]]
+name = "codex-shim"
+path = "src/main.rs"
+
 [dependencies]
-anyhow = "1.0"
+net-chassis = { git = "https://github.com/pylab-me/net-chassis.git" }
+
+# Web 框架与中间件
 axum = "0.8"
-futures-util = "0.3"
-http = "1.2"
-reqwest = { version = "0.13", default-features = false, features = ["json", "rustls", "http2"] }
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-serde_yaml = "0.9"
-thiserror = "2.0"
-time = { version = "0.3", features = ["formatting", "macros"] }
-tokio = { version = "1.43", features = ["macros", "rt-multi-thread", "signal"] }
-tokio-stream = "0.1"
 tower-http = { version = "0.6", features = ["trace", "cors"] }
+
+# 异步与时间
+tokio = { version = "1.52", features = ["macros", "rt-multi-thread", "signal"] }
+tokio-util = "0.7"
+chrono = "0.4.44"
+
+# 序列化
+serde = { version = "1.0", features = ["derive"] }
+serde_json = { version = "1.0" }
+toml = "1.1"
+
+# 基础工具
+uuid = { version = "1.23", features = ["v4", "serde"] }
+rand = "0.10"
+dirs = "6.0.0"
+blake3 = "1.8.5"
+regex = "1"
+
+# 凭据管理
+keyring = "4"
+keyring-core = "1"
+
+# 网络请求
+reqwest = { version = "0.13", default-features = false, features = ["json", "http2", "rustls"] }
+
+# 日志与追踪
+anyhow = "1.0"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
-uuid = { version = "1.12", features = ["v4", "serde"] }
 
 [profile.release]
 opt-level = 3
 lto = "fat"
-codegen-units = 1
+codegen-units = 4
 panic = "abort"
 strip = "symbols"
 incremental = false

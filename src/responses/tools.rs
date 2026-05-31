@@ -38,9 +38,7 @@ pub fn chat_tool_calls_to_responses_items(tool_calls: &[Value]) -> Vec<Value> {
         .filter_map(|call| {
             let obj = call.as_object()?;
             let call_id = obj.get("id").and_then(Value::as_str).unwrap_or_else(|| {
-                obj.get("call_id")
-                    .and_then(Value::as_str)
-                    .unwrap_or("call_local_unknown")
+                obj.get("call_id").and_then(Value::as_str).unwrap_or("call_local_unknown")
             });
             let function = obj.get("function").and_then(Value::as_object)?;
             let name = function.get("name").and_then(Value::as_str).unwrap_or("");
@@ -84,10 +82,7 @@ fn normalize_tool_arguments(arguments: Option<&Value>) -> String {
 }
 
 pub fn make_assistant_tool_calls_message(tool_calls: Vec<Value>) -> Value {
-    let tool_calls = tool_calls
-        .into_iter()
-        .map(normalize_chat_tool_call)
-        .collect::<Vec<_>>();
+    let tool_calls = tool_calls.into_iter().map(normalize_chat_tool_call).collect::<Vec<_>>();
     json!({
         "role": "assistant",
         "content": null,

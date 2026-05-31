@@ -23,8 +23,12 @@ impl ProviderTokenStats {
             return Self::default();
         };
         Self {
-            input_tokens: number_field(usage, &["input_tokens", "prompt_tokens"]),
-            output_tokens: number_field(usage, &["output_tokens", "completion_tokens"]),
+            input_tokens: preferred_nonzero_number_field(usage, "input_tokens", "prompt_tokens"),
+            output_tokens: preferred_nonzero_number_field(
+                usage,
+                "output_tokens",
+                "completion_tokens",
+            ),
             total_tokens: number_field(usage, &["total_tokens"]),
             cached_tokens: nested_number_field(
                 usage,
@@ -64,16 +68,22 @@ impl ProviderTokenStats {
 }
 
 fn number_field(value: &Value, names: &[&str]) -> Option<u64> {
-    names
-        .iter()
-        .find_map(|name| value.get(*name).and_then(Value::as_u64))
+    names.iter().find_map(|name| value.get(*name).and_then(Value::as_u64))
+}
+
+fn preferred_nonzero_number_field(value: &Value, primary: &str, fallback: &str) -> Option<u64> {
+    let primary_value = value.get(primary).and_then(Value::as_u64);
+    let fallback_value = value.get(fallback).and_then(Value::as_u64);
+    match (primary_value, fallback_value) {
+        (Some(0), Some(other)) if other > 0 => Some(other),
+        (Some(current), _) => Some(current),
+        (None, Some(other)) => Some(other),
+        (None, None) => None,
+    }
 }
 
 fn nested_number_field(value: &Value, names: &[(&str, &str)]) -> Option<u64> {
     names.iter().find_map(|(outer, inner)| {
-        value
-            .get(*outer)
-            .and_then(|obj| obj.get(*inner))
-            .and_then(Value::as_u64)
+        value.get(*outer).and_then(|obj| obj.get(*inner)).and_then(Value::as_u64)
     })
 }

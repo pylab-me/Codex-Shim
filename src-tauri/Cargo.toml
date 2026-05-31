@@ -1,0 +1,37 @@
+[package]
+name = "codex-shim-ui"
+version = "0.3.2"
+description = "Tauri desktop wrapper for codex-shim"
+license = "MIT"
+edition = "2024"
+
+[package.metadata.tauri]
+# No custom icon config needed
+
+[dependencies]
+codex-shim = { path = ".." }
+tauri = { version = "2", features = [] }
+tauri-plugin-opener = "2"
+tokio = { version = "1.52", features = ["macros", "rt-multi-thread"] }
+axum = "0.8"
+tracing = "0.1"
+tokio-util = "0.7"
+
+# Network ingress normalization (pure mechanism layer)
+net-chassis = { git = "https://github.com/pylab-me/net-chassis.git" }
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[features]
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]
+
+[profile.release]
+opt-level = "z"
+lto = "thin"
+codegen-units = 32
+panic = "abort"
+strip = "symbols"
+incremental = true
+debug = false

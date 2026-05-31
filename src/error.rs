@@ -1,29 +1,36 @@
+use std::fmt;
+
 use axum::Json;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use serde_json::{Value, json};
-use thiserror::Error;
 
-#[derive(Debug, Error)]
+#[derive(Debug)]
 pub enum ShimError {
-    #[error("invalid request: {0}")]
     InvalidRequest(String),
-
-    #[error("response not found: {0}")]
     ResponseNotFound(String),
-
-    #[error("provider error: {0}")]
     Provider(String),
-
-    #[error("provider protocol error: {0}")]
     ProviderProtocol(String),
-
-    #[error("unsupported feature: {message}")]
     UnsupportedFeature { code: &'static str, message: String },
-
-    #[error("upstream transport error: {0}")]
     Transport(String),
 }
+
+impl fmt::Display for ShimError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ShimError::InvalidRequest(msg) => write!(f, "invalid request: {}", msg),
+            ShimError::ResponseNotFound(id) => write!(f, "response not found: {}", id),
+            ShimError::Provider(msg) => write!(f, "provider error: {}", msg),
+            ShimError::ProviderProtocol(msg) => write!(f, "provider protocol error: {}", msg),
+            ShimError::UnsupportedFeature { message, .. } => {
+                write!(f, "unsupported feature: {}", message)
+            }
+            ShimError::Transport(msg) => write!(f, "upstream transport error: {}", msg),
+        }
+    }
+}
+
+impl std::error::Error for ShimError {}
 
 impl ShimError {
     pub fn status(&self) -> StatusCode {

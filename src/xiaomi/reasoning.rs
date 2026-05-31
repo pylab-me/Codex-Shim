@@ -58,10 +58,8 @@ pub fn copy_incoming_reasoning_content(
     if role != "assistant" {
         return;
     }
-    if let Some(reasoning_content) = source
-        .get("reasoning_content")
-        .and_then(Value::as_str)
-        .map(ToOwned::to_owned)
+    if let Some(reasoning_content) =
+        source.get("reasoning_content").and_then(Value::as_str).map(ToOwned::to_owned)
     {
         target.insert("reasoning_content".to_string(), json!(reasoning_content));
     }
@@ -91,10 +89,7 @@ pub fn apply_reasoning_policy_to_assistant_message(
 }
 
 pub fn extract_reasoning_content(message: &Value) -> Option<String> {
-    message
-        .get("reasoning_content")
-        .and_then(Value::as_str)
-        .map(ToOwned::to_owned)
+    message.get("reasoning_content").and_then(Value::as_str).map(ToOwned::to_owned)
 }
 
 #[cfg(test)]

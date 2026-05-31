@@ -1,0 +1,47 @@
+# codex-shim configuration
+# All settings have sensible defaults — only override what you need.
+
+[server]
+host = "127.0.0.1"
+port = 33300
+
+[provider]
+fallback_unknown_model_to_default = true
+
+# ── Default provider: Xiaomi MiMo ──
+[[provider.entries]]
+name = "mimo"
+base_url = "https://token-plan-cn.xiaomimimo.com/v1"
+model = "mimo-v2.5"
+models = ["mimo-v2.5", "mimo-v2.5-pro"]
+thinking = true
+
+# ── Example: local Ollama ──
+# [[provider.entries]]
+# name = "ollama"
+# base_url = "http://127.0.0.1:11434/v1"
+# model = "qwen3:8b"
+# models = ["qwen3:8b", "qwen3:14b"]
+# thinking = false
+
+[provider.aliases]
+# Map client-facing model names to provider model names.
+# "gpt-4o" = "mimo-v2.5"
+
+[generation]
+# default_temperature = 0.7
+# default_top_p = 1.0
+# default_max_output_tokens = 4096
+
+[http]
+request_timeout_secs = 300
+trust_env = false
+http2_prior_knowledge = false
+
+[behavior]
+access_log = true
+response_store_max = 1000
+forward_parallel_tool_calls = true
+
+[log]
+level = "codex_shim=info,tower_http=warn"

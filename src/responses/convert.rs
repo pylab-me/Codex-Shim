@@ -47,17 +47,13 @@ pub fn convert_responses_to_chat(
     let provider_model = provider_model.to_string();
     let stream = obj.get("stream").and_then(Value::as_bool).unwrap_or(false);
     let store = obj.get("store").and_then(Value::as_bool).unwrap_or(true);
-    let previous_response_id = obj
-        .get("previous_response_id")
-        .and_then(Value::as_str)
-        .map(ToOwned::to_owned);
+    let previous_response_id =
+        obj.get("previous_response_id").and_then(Value::as_str).map(ToOwned::to_owned);
 
     let mut messages = previous_messages.unwrap_or_default();
     if messages.is_empty() {
-        if let Some(instructions) = obj
-            .get("instructions")
-            .and_then(Value::as_str)
-            .filter(|s| !s.is_empty())
+        if let Some(instructions) =
+            obj.get("instructions").and_then(Value::as_str).filter(|s| !s.is_empty())
         {
             messages.push(json!({"role":"system", "content": instructions}));
         }
@@ -96,11 +92,9 @@ pub fn convert_responses_to_chat(
         }
     }
 
-    let parallel_tool_calls = obj
-        .get("parallel_tool_calls")
-        .and_then(Value::as_bool)
-        .unwrap_or(false)
-        && forward_parallel_tool_calls;
+    let parallel_tool_calls =
+        obj.get("parallel_tool_calls").and_then(Value::as_bool).unwrap_or(false)
+            && forward_parallel_tool_calls;
 
     Ok(ConvertedRequest {
         response_id: format!("resp_local_{}", Uuid::new_v4().simple()),
@@ -166,14 +160,9 @@ fn input_items_to_chat_messages(
             }
             Some("function_call_output") => {
                 flush_pending_tool_calls(&mut messages, &mut pending_assistant_tool_calls);
-                let call_id = obj
-                    .get("call_id")
-                    .and_then(Value::as_str)
-                    .unwrap_or_else(|| {
-                        obj.get("id")
-                            .and_then(Value::as_str)
-                            .unwrap_or("call_local_unknown")
-                    });
+                let call_id = obj.get("call_id").and_then(Value::as_str).unwrap_or_else(|| {
+                    obj.get("id").and_then(Value::as_str).unwrap_or("call_local_unknown")
+                });
                 let output = obj.get("output").cloned().unwrap_or(Value::Null);
                 messages.push(make_tool_message(call_id, &output));
             }
@@ -293,23 +282,17 @@ fn normalize_image_part(obj: &Map<String, Value>) -> Result<Option<Value>, ShimE
 }
 
 fn normalize_input_audio_part(obj: &Map<String, Value>) -> Result<Option<Value>, ShimError> {
-    let input_audio = obj
-        .get("input_audio")
-        .and_then(Value::as_object)
-        .ok_or_else(|| {
-            ShimError::InvalidRequest(
-                "input_audio content part must contain input_audio object".to_string(),
-            )
-        })?;
+    let input_audio = obj.get("input_audio").and_then(Value::as_object).ok_or_else(|| {
+        ShimError::InvalidRequest(
+            "input_audio content part must contain input_audio object".to_string(),
+        )
+    })?;
 
-    let data = input_audio
-        .get("data")
-        .and_then(Value::as_str)
-        .ok_or_else(|| {
-            ShimError::InvalidRequest(
-                "input_audio.input_audio.data must be a base64 string or data URL".to_string(),
-            )
-        })?;
+    let data = input_audio.get("data").and_then(Value::as_str).ok_or_else(|| {
+        ShimError::InvalidRequest(
+            "input_audio.input_audio.data must be a base64 string or data URL".to_string(),
+        )
+    })?;
 
     let format_from_field = input_audio.get("format").and_then(Value::as_str);
     let inferred = validate_audio_data(data, format_from_field)?;
@@ -414,10 +397,7 @@ fn split_data_url(value: &str) -> Result<Option<(&str, &str)>, ShimError> {
 }
 
 fn validate_base64_string_size(encoded: &str, field_name: &str) -> Result<(), ShimError> {
-    let len = encoded
-        .bytes()
-        .filter(|byte| !byte.is_ascii_whitespace())
-        .count();
+    let len = encoded.bytes().filter(|byte| !byte.is_ascii_whitespace()).count();
     if len > MAX_BASE64_STRING_BYTES {
         return Err(ShimError::InvalidRequest(format!(
             "{field_name} base64 string exceeds 50 MB limit"
@@ -542,10 +522,7 @@ mod tests {
         ])))
         .expect_err("aac should be rejected by the strict allowlist");
 
-        assert!(
-            err.to_string()
-                .contains("unsupported input_audio MIME type")
-        );
+        assert!(err.to_string().contains("unsupported input_audio MIME type"));
     }
 
     #[test]

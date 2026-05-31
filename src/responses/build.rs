@@ -1,15 +1,15 @@
 use serde_json::{Value, json};
-use time::OffsetDateTime;
 use uuid::Uuid;
 
 use crate::error::ShimError;
+use crate::provider::client::ChatResult;
 use crate::responses::tools::{
     chat_tool_calls_to_responses_items, make_assistant_tool_calls_message,
 };
 use crate::xiaomi::reasoning::{
     ReasoningPolicy, apply_reasoning_policy_to_assistant_message, extract_reasoning_content,
 };
-use crate::xiaomi::schema::{ChatResult, ProviderTokenStats};
+use crate::xiaomi::schema::ProviderTokenStats;
 
 #[derive(Debug, Clone)]
 pub struct BuiltResponse {
@@ -26,13 +26,10 @@ pub fn build_response_object(
     store: bool,
     reasoning_policy: ReasoningPolicy,
 ) -> Result<BuiltResponse, ShimError> {
-    let now = OffsetDateTime::now_utc().unix_timestamp();
+    let now = chrono::Utc::now().timestamp();
     let message = chat_result.message;
-    let tool_calls = message
-        .get("tool_calls")
-        .and_then(Value::as_array)
-        .cloned()
-        .unwrap_or_default();
+    let tool_calls =
+        message.get("tool_calls").and_then(Value::as_array).cloned().unwrap_or_default();
 
     let mut updated = base_chat_messages.to_vec();
     let reasoning_content = extract_reasoning_content(&message);
@@ -49,11 +46,7 @@ pub fn build_response_object(
             String::new(),
         )
     } else {
-        let text = message
-            .get("content")
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .to_string();
+        let text = message.get("content").and_then(Value::as_str).unwrap_or("").to_string();
         let mut assistant_message = json!({"role":"assistant", "content": text});
         apply_reasoning_policy_to_assistant_message(
             &mut assistant_message,
@@ -91,15 +84,12 @@ pub fn build_response_object(
         "incomplete_details": null,
         "parallel_tool_calls": parallel_tool_calls,
         "store": store,
-        // Codex parses response.completed as a Responses API object. The shim
-        // converts provider token accounting only when all required counts are
-        // present. It never fabricates input/output/total token counts.
         "usage": responses_usage
     });
 
     response["local_gateway"] = json!({
-        "name": "codex-mimo-shim",
-        "backend": "xiaomimimo",
+        "name": "codex-shim",
+        "backend": "provider",
         "endpoint_used": "chat.completions",
         "finish_reason": chat_result.finish_reason,
         "provider_raw_id": chat_result.raw.get("id").cloned().unwrap_or(Value::Null),
@@ -120,14 +110,14 @@ fn normalize_responses_usage(provider_usage: Option<&Value>) -> Result<Value, Sh
         ));
     };
 
-    let input_tokens =
-        number_field(usage, &["input_tokens", "prompt_tokens"]).ok_or_else(|| {
+    let input_tokens = preferred_nonzero_number_field(usage, "input_tokens", "prompt_tokens")
+        .ok_or_else(|| {
             ShimError::ProviderProtocol(
                 "missing_provider_usage: usage is missing input_tokens/prompt_tokens".to_string(),
             )
         })?;
-    let output_tokens =
-        number_field(usage, &["output_tokens", "completion_tokens"]).ok_or_else(|| {
+    let output_tokens = preferred_nonzero_number_field(usage, "output_tokens", "completion_tokens")
+        .ok_or_else(|| {
             ShimError::ProviderProtocol(
                 "missing_provider_usage: usage is missing output_tokens/completion_tokens"
                     .to_string(),
@@ -171,17 +161,23 @@ fn normalize_responses_usage(provider_usage: Option<&Value>) -> Result<Value, Sh
 }
 
 fn number_field(value: &Value, names: &[&str]) -> Option<u64> {
-    names
-        .iter()
-        .find_map(|name| value.get(*name).and_then(Value::as_u64))
+    names.iter().find_map(|name| value.get(*name).and_then(Value::as_u64))
+}
+
+fn preferred_nonzero_number_field(value: &Value, primary: &str, fallback: &str) -> Option<u64> {
+    let primary_value = value.get(primary).and_then(Value::as_u64);
+    let fallback_value = value.get(fallback).and_then(Value::as_u64);
+    match (primary_value, fallback_value) {
+        (Some(0), Some(other)) if other > 0 => Some(other),
+        (Some(current), _) => Some(current),
+        (None, Some(other)) => Some(other),
+        (None, None) => None,
+    }
 }
 
 fn nested_number_field(value: &Value, names: &[(&str, &str)]) -> Option<u64> {
     names.iter().find_map(|(outer, inner)| {
-        value
-            .get(*outer)
-            .and_then(|obj| obj.get(*inner))
-            .and_then(Value::as_u64)
+        value.get(*outer).and_then(|obj| obj.get(*inner)).and_then(Value::as_u64)
     })
 }
 
@@ -197,18 +193,25 @@ mod tests {
         })
     }
 
+    fn make_chat_result(message: Value, finish_reason: &str) -> ChatResult {
+        ChatResult {
+            raw: json!({"id":"chatcmpl_test"}),
+            message,
+            finish_reason: Some(finish_reason.to_string()),
+            usage: Some(usage()),
+        }
+    }
+
     #[test]
     fn stores_assistant_reasoning_content_for_text_response_when_enabled() {
-        let chat_result = ChatResult {
-            raw: json!({"id":"chatcmpl_test"}),
-            message: json!({
+        let chat_result = make_chat_result(
+            json!({
                 "role": "assistant",
                 "content": "final answer",
                 "reasoning_content": "provider reasoning"
             }),
-            finish_reason: Some("stop".to_string()),
-            usage: Some(usage()),
-        };
+            "stop",
+        );
         let policy = ReasoningPolicy {
             thinking_enabled: true,
         };
@@ -232,9 +235,8 @@ mod tests {
 
     #[test]
     fn stores_assistant_reasoning_content_for_tool_calls_when_enabled() {
-        let chat_result = ChatResult {
-            raw: json!({"id":"chatcmpl_test"}),
-            message: json!({
+        let chat_result = make_chat_result(
+            json!({
                 "role": "assistant",
                 "content": null,
                 "reasoning_content": "provider reasoning",
@@ -244,9 +246,8 @@ mod tests {
                     "function": {"name": "lookup", "arguments": "{}"}
                 }]
             }),
-            finish_reason: Some("tool_calls".to_string()),
-            usage: Some(usage()),
-        };
+            "tool_calls",
+        );
         let policy = ReasoningPolicy {
             thinking_enabled: true,
         };
@@ -271,16 +272,14 @@ mod tests {
 
     #[test]
     fn preserves_provider_reasoning_content_even_when_explicit_thinking_is_disabled() {
-        let chat_result = ChatResult {
-            raw: json!({"id":"chatcmpl_test"}),
-            message: json!({
+        let chat_result = make_chat_result(
+            json!({
                 "role": "assistant",
                 "content": "final answer",
                 "reasoning_content": "provider reasoning"
             }),
-            finish_reason: Some("stop".to_string()),
-            usage: Some(usage()),
-        };
+            "stop",
+        );
         let policy = ReasoningPolicy {
             thinking_enabled: false,
         };
@@ -300,5 +299,47 @@ mod tests {
             built.updated_chat_messages[0]["reasoning_content"],
             json!("provider reasoning")
         );
+    }
+
+    #[test]
+    fn prefers_openai_usage_fields_over_zeroed_nonstandard_fields() {
+        let usage = json!({
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "prompt_tokens": 17467,
+            "completion_tokens": 20,
+            "total_tokens": 17487,
+            "prompt_tokens_details": {
+                "cached_tokens": 17408
+            }
+        });
+
+        let normalized = normalize_responses_usage(Some(&usage)).expect("usage should normalize");
+        let observed = ProviderTokenStats::from_usage(Some(&usage));
+
+        assert_eq!(normalized["input_tokens"], json!(17467));
+        assert_eq!(normalized["output_tokens"], json!(20));
+        assert_eq!(observed.input_tokens, Some(17467));
+        assert_eq!(observed.output_tokens, Some(20));
+        assert_eq!(observed.cached_tokens, Some(17408));
+    }
+
+    #[test]
+    fn keeps_nonstandard_usage_fields_when_they_have_real_values() {
+        let usage = json!({
+            "input_tokens": 321,
+            "output_tokens": 45,
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_tokens": 366
+        });
+
+        let normalized = normalize_responses_usage(Some(&usage)).expect("usage should normalize");
+        let observed = ProviderTokenStats::from_usage(Some(&usage));
+
+        assert_eq!(normalized["input_tokens"], json!(321));
+        assert_eq!(normalized["output_tokens"], json!(45));
+        assert_eq!(observed.input_tokens, Some(321));
+        assert_eq!(observed.output_tokens, Some(45));
     }
 }

@@ -72,10 +72,7 @@ fn stream_added_item(item: &Value) -> Value {
     let Some(obj) = added.as_object_mut() else {
         return added;
     };
-    let item_type = obj
-        .get("type")
-        .and_then(Value::as_str)
-        .map(ToOwned::to_owned);
+    let item_type = obj.get("type").and_then(Value::as_str).map(ToOwned::to_owned);
     obj.insert("status".to_string(), json!("in_progress"));
     match item_type.as_deref() {
         Some("message") => {
@@ -91,11 +88,7 @@ fn stream_added_item(item: &Value) -> Value {
 
 fn append_message_events(events: &mut Vec<String>, output_index: usize, item: &Value) {
     let item_id = item.get("id").and_then(Value::as_str).unwrap_or("");
-    let content = item
-        .get("content")
-        .and_then(Value::as_array)
-        .cloned()
-        .unwrap_or_default();
+    let content = item.get("content").and_then(Value::as_array).cloned().unwrap_or_default();
     for (content_index, part) in content.iter().enumerate() {
         let mut added_part = part.clone();
         if let Some(obj) = added_part.as_object_mut() {
@@ -194,7 +187,7 @@ pub fn failed_sse_events(response_id: &str, error: &ShimError) -> Vec<String> {
     let response = json!({
         "id": response_id,
         "object": "response",
-        "created_at": time::OffsetDateTime::now_utc().unix_timestamp(),
+    "created_at": chrono::Utc::now().timestamp(),
         "status": "failed",
         "output": [],
         "output_text": "",
