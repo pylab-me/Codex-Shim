@@ -1,14 +1,17 @@
-# codex-mimo-shim
+# Codex-Shim
 
-A tiny Rust Responses-to-Chat shim for Codex CLI and Xiaomi MiMo.
+A tiny Rust Responses-to-Chat shim for Codex CLI to use OpenAI-compatible APIs.
 
 It is intentionally narrower than RelayForge:
 
 ```text
 Codex CLI / Responses client
 -> local /v1/responses
--> Xiaomi MiMo Chat Completions
+-> OpenAI-compatible Chat Completions
 ```
+
+> Not only Xiaomi MIMO, but also deepseek, longcat, GLM.
+> `Codex-Shim` 不单单支持小米，更加支持Deepseek，美团的LongCat，智谱的GLM（均进行本地测试）。
 
 ## Features and Limitations / 功能与限制
 
@@ -20,9 +23,16 @@ Codex CLI / Responses client
 
 ### Recommended codex-cli version / 推荐的 codex-cli 版本
 
-This project is recommended to be used with `codex-cli` version `0.116.0` (`0.130.0` has also been tested).
+|    Project version / 项目版本 | codex-cli version / 搭配 codex-cli 版本 | Notes / 注释                    |
+|--------------------------:|------------------------------------:|-------------------------------|
+|                    v0.1.9 |                           `0.116.0` | Recommended / 推荐使用            |
+|                    v0.1.9 |                           `0.119.0` | before Codex-cli change tools |
+|                Preview UI |                           `0.130.0` | -                             |
+|                Preview UI |                           `0.141.0` | Coming soon (in local test)   |
 
-本项目建议搭配 `codex-cli` `0.116.0` 版本使用（`0.130.0` 也已经测试）。
+> v0.1.x will keep open source and do some code clean.
+
+> v0.2.x some crates is my private crate. And use `tauri 2` for user UI. Support some features which `Not included` in v0.1.x.
 
 ```bash
 npm install -g @openai/codex@0.116.0
