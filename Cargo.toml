@@ -1,6 +1,6 @@
 [package]
-name = "codex-mimo-shim"
-version = "0.1.9"
+name = "codex-shim"
+version = "0.1.10"
 edition = "2024"
 description = "Tiny Responses-to-Chat shim for Codex CLI and Xiaomi MiMo."
 license = "MIT"
