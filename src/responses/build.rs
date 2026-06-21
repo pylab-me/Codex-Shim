@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use serde_json::{Value, json};
 use time::OffsetDateTime;
 use uuid::Uuid;
@@ -21,6 +23,7 @@ pub fn build_response_object(
     response_id: &str,
     client_model: &str,
     base_chat_messages: &[Value],
+    custom_tool_names: &HashSet<String>,
     chat_result: ChatResult,
     parallel_tool_calls: bool,
     store: bool,
@@ -45,7 +48,7 @@ pub fn build_response_object(
         );
         updated.push(assistant_message);
         (
-            chat_tool_calls_to_responses_items(&tool_calls),
+            chat_tool_calls_to_responses_items(&tool_calls, custom_tool_names),
             String::new(),
         )
     } else {
@@ -228,6 +231,7 @@ mod tests {
             "resp_test",
             "mimo-v2.5-pro",
             &[],
+            &HashSet::new(),
             chat_result,
             false,
             true,
@@ -266,6 +270,7 @@ mod tests {
             "resp_test",
             "mimo-v2.5-pro",
             &[],
+            &HashSet::new(),
             chat_result,
             true,
             true,
@@ -300,6 +305,7 @@ mod tests {
             "resp_test",
             "mimo-v2.5-pro",
             &[],
+            &HashSet::new(),
             chat_result,
             false,
             true,
@@ -353,5 +359,48 @@ mod tests {
         assert_eq!(normalized["output_tokens"], json!(45));
         assert_eq!(observed.input_tokens, Some(321));
         assert_eq!(observed.output_tokens, Some(45));
+    }
+
+    #[test]
+    fn restores_provider_function_tool_call_as_custom_tool_call() {
+        let chat_result = ChatResult {
+            raw: json!({"id":"chatcmpl_test"}),
+            message: json!({
+                "role": "assistant",
+                "content": null,
+                "tool_calls": [{
+                    "id": "call_custom_1",
+                    "type": "function",
+                    "function": {
+                        "name": "local_shell",
+                        "arguments": "{\"input\":\"pwd\"}"
+                    }
+                }]
+            }),
+            finish_reason: Some("tool_calls".to_string()),
+            usage: Some(usage()),
+        };
+
+        let built = build_response_object(
+            "resp_test",
+            "mimo-v2.5",
+            &[],
+            &HashSet::from([String::from("local_shell")]),
+            chat_result,
+            true,
+            true,
+            ReasoningPolicy::default(),
+        )
+        .expect("response should build");
+
+        assert_eq!(
+            built.response_object["output"][0]["type"],
+            json!("custom_tool_call")
+        );
+        assert_eq!(
+            built.response_object["output"][0]["name"],
+            json!("local_shell")
+        );
+        assert_eq!(built.response_object["output"][0]["input"], json!("pwd"));
     }
 }

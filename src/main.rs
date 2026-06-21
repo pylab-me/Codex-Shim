@@ -305,6 +305,7 @@ async fn create_response_inner(
         &converted.response_id,
         &converted.client_model,
         &converted.chat_messages,
+        &converted.custom_tool_names,
         chat_result,
         converted.parallel_tool_calls,
         converted.store,

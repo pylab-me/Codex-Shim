@@ -1,38 +1,87 @@
+use std::collections::HashSet;
+
 use serde_json::{Value, json};
 
-/// Convert Codex/Responses function tool declarations into Chat Completions tools.
-/// Non-function/built-in tools are intentionally dropped: Codex owns tools, this shim
-/// only forwards client-owned function schemas to Xiaomi MiMo.
-pub fn responses_tools_to_chat_tools(tools: Option<&Value>) -> Vec<Value> {
-    let Some(items) = tools.and_then(Value::as_array) else {
-        return Vec::new();
-    };
-    items
-        .iter()
-        .filter_map(|tool| {
-            let obj = tool.as_object()?;
-            if obj.get("type").and_then(Value::as_str) != Some("function") {
-                return None;
-            }
-            let name = obj.get("name").and_then(Value::as_str)?.to_string();
-            let description = obj.get("description").cloned().unwrap_or_else(|| json!(""));
-            let parameters = obj
-                .get("parameters")
-                .cloned()
-                .unwrap_or_else(|| json!({"type":"object","properties":{}}));
-            Some(json!({
-                "type": "function",
-                "function": {
-                    "name": name,
-                    "description": description,
-                    "parameters": parameters
-                }
-            }))
-        })
-        .collect()
+#[derive(Debug, Clone, Default)]
+pub struct ChatToolConversion {
+    pub tools: Vec<Value>,
+    pub custom_tool_names: HashSet<String>,
 }
 
-pub fn chat_tool_calls_to_responses_items(tool_calls: &[Value]) -> Vec<Value> {
+/// Convert Codex/Responses function/custom tool declarations into Chat Completions tools.
+/// Built-in tools are still dropped because this shim only forwards client-owned schemas
+/// to Xiaomi MiMo.
+pub fn responses_tools_to_chat_tools(tools: Option<&Value>) -> ChatToolConversion {
+    let Some(items) = tools.and_then(Value::as_array) else {
+        return ChatToolConversion::default();
+    };
+
+    let mut chat_tools = Vec::new();
+    let mut custom_tool_names = HashSet::new();
+
+    for tool in items {
+        let Some(obj) = tool.as_object() else {
+            continue;
+        };
+
+        match obj.get("type").and_then(Value::as_str) {
+            Some("function") => {
+                let Some(name) = obj.get("name").and_then(Value::as_str) else {
+                    continue;
+                };
+                let description = obj.get("description").cloned().unwrap_or_else(|| json!(""));
+                let parameters = obj
+                    .get("parameters")
+                    .cloned()
+                    .unwrap_or_else(|| json!({"type":"object","properties":{}}));
+                chat_tools.push(json!({
+                    "type": "function",
+                    "function": {
+                        "name": name,
+                        "description": description,
+                        "parameters": parameters
+                    }
+                }));
+            }
+            Some("custom") => {
+                let Some(name) = obj.get("name").and_then(Value::as_str) else {
+                    continue;
+                };
+                let description = obj.get("description").cloned().unwrap_or_else(|| json!(""));
+                chat_tools.push(json!({
+                    "type": "function",
+                    "function": {
+                        "name": name,
+                        "description": description,
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "input": {
+                                    "type": "string",
+                                    "description": "Raw custom tool input."
+                                }
+                            },
+                            "required": ["input"],
+                            "additionalProperties": false
+                        }
+                    }
+                }));
+                custom_tool_names.insert(name.to_string());
+            }
+            _ => {}
+        }
+    }
+
+    ChatToolConversion {
+        tools: chat_tools,
+        custom_tool_names,
+    }
+}
+
+pub fn chat_tool_calls_to_responses_items(
+    tool_calls: &[Value],
+    custom_tool_names: &HashSet<String>,
+) -> Vec<Value> {
     tool_calls
         .iter()
         .filter_map(|call| {
@@ -45,14 +94,25 @@ pub fn chat_tool_calls_to_responses_items(tool_calls: &[Value]) -> Vec<Value> {
             let function = obj.get("function").and_then(Value::as_object)?;
             let name = function.get("name").and_then(Value::as_str).unwrap_or("");
             let arguments = normalize_tool_arguments(function.get("arguments"));
-            Some(json!({
-                "id": format!("fc_{}", call_id),
-                "type": "function_call",
-                "status": "completed",
-                "call_id": call_id,
-                "name": name,
-                "arguments": arguments
-            }))
+            if custom_tool_names.contains(name) {
+                Some(json!({
+                    "id": format!("ctc_{}", call_id),
+                    "type": "custom_tool_call",
+                    "status": "completed",
+                    "call_id": call_id,
+                    "name": name,
+                    "input": extract_custom_input(&arguments)
+                }))
+            } else {
+                Some(json!({
+                    "id": format!("fc_{}", call_id),
+                    "type": "function_call",
+                    "status": "completed",
+                    "call_id": call_id,
+                    "name": name,
+                    "arguments": arguments
+                }))
+            }
         })
         .collect()
 }
@@ -64,7 +124,14 @@ pub fn response_function_call_item_to_chat_tool_call(item: &Value) -> Value {
         .or_else(|| item.get("id").and_then(Value::as_str))
         .unwrap_or("call_local_unknown");
     let name = item.get("name").and_then(Value::as_str).unwrap_or("");
-    let arguments = normalize_tool_arguments(item.get("arguments"));
+    let arguments = if item.get("type").and_then(Value::as_str) == Some("custom_tool_call") {
+        json!({
+            "input": item.get("input").and_then(Value::as_str).unwrap_or("")
+        })
+        .to_string()
+    } else {
+        normalize_tool_arguments(item.get("arguments"))
+    };
     json!({
         "id": call_id,
         "type": "function",
@@ -81,6 +148,18 @@ fn normalize_tool_arguments(arguments: Option<&Value>) -> String {
         Some(other) => serde_json::to_string(other).unwrap_or_else(|_| "{}".to_string()),
         None => "{}".to_string(),
     }
+}
+
+fn extract_custom_input(arguments: &str) -> String {
+    serde_json::from_str::<Value>(arguments)
+        .ok()
+        .and_then(|value| value.get("input").cloned())
+        .and_then(|value| match value {
+            Value::String(text) => Some(text),
+            Value::Null => Some(String::new()),
+            other => Some(other.to_string()),
+        })
+        .unwrap_or_default()
 }
 
 pub fn make_assistant_tool_calls_message(tool_calls: Vec<Value>) -> Value {
@@ -133,4 +212,68 @@ pub fn make_tool_message(call_id: &str, output: &Value) -> Value {
         "tool_call_id": call_id,
         "content": content
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn forwards_custom_tools_as_single_input_functions() {
+        let converted = responses_tools_to_chat_tools(Some(&json!([
+            {
+                "type": "custom",
+                "name": "local_shell",
+                "description": "Run a shell command."
+            }
+        ])));
+
+        assert_eq!(converted.tools.len(), 1);
+        assert!(converted.custom_tool_names.contains("local_shell"));
+        assert_eq!(
+            converted.tools[0]["function"]["parameters"]["required"],
+            json!(["input"])
+        );
+        assert_eq!(
+            converted.tools[0]["function"]["parameters"]["properties"]["input"]["type"],
+            json!("string")
+        );
+    }
+
+    #[test]
+    fn restores_custom_tool_calls_from_chat_arguments() {
+        let custom_tool_names = HashSet::from([String::from("local_shell")]);
+        let items = chat_tool_calls_to_responses_items(
+            &[json!({
+                "id": "call_123",
+                "type": "function",
+                "function": {
+                    "name": "local_shell",
+                    "arguments": "{\"input\":\"pwd\"}"
+                }
+            })],
+            &custom_tool_names,
+        );
+
+        assert_eq!(items[0]["type"], json!("custom_tool_call"));
+        assert_eq!(items[0]["input"], json!("pwd"));
+    }
+
+    #[test]
+    fn replays_custom_tool_calls_as_function_calls() {
+        let tool_call = response_function_call_item_to_chat_tool_call(&json!({
+            "id": "ctc_123",
+            "type": "custom_tool_call",
+            "call_id": "call_123",
+            "name": "local_shell",
+            "input": "pwd"
+        }));
+
+        assert_eq!(tool_call["type"], json!("function"));
+        assert_eq!(tool_call["function"]["name"], json!("local_shell"));
+        assert_eq!(
+            tool_call["function"]["arguments"],
+            json!("{\"input\":\"pwd\"}")
+        );
+    }
 }

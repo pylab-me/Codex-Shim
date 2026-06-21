@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use serde_json::{Map, Value, json};
 use uuid::Uuid;
 
@@ -29,6 +31,7 @@ pub struct ConvertedRequest {
     pub chat_payload: Value,
     pub chat_messages: Vec<Value>,
     pub parallel_tool_calls: bool,
+    pub custom_tool_names: HashSet<String>,
 }
 
 pub fn convert_responses_to_chat(
@@ -83,9 +86,9 @@ pub fn convert_responses_to_chat(
         payload.insert("max_tokens".to_string(), json!(value));
     }
 
-    let chat_tools = responses_tools_to_chat_tools(obj.get("tools"));
-    if !chat_tools.is_empty() {
-        payload.insert("tools".to_string(), Value::Array(chat_tools));
+    let tool_conversion = responses_tools_to_chat_tools(obj.get("tools"));
+    if !tool_conversion.tools.is_empty() {
+        payload.insert("tools".to_string(), Value::Array(tool_conversion.tools));
         if let Some(tool_choice) = obj.get("tool_choice") {
             payload.insert("tool_choice".to_string(), tool_choice.clone());
         }
@@ -116,6 +119,7 @@ pub fn convert_responses_to_chat(
         chat_payload: Value::Object(payload),
         chat_messages: messages,
         parallel_tool_calls,
+        custom_tool_names: tool_conversion.custom_tool_names,
     })
 }
 
@@ -160,11 +164,11 @@ fn input_items_to_chat_messages(
         };
 
         match obj.get("type").and_then(Value::as_str) {
-            Some("function_call") => {
+            Some("function_call") | Some("custom_tool_call") => {
                 pending_assistant_tool_calls
                     .push(response_function_call_item_to_chat_tool_call(item));
             }
-            Some("function_call_output") => {
+            Some("function_call_output") | Some("custom_tool_call_output") => {
                 flush_pending_tool_calls(&mut messages, &mut pending_assistant_tool_calls);
                 let call_id = obj
                     .get("call_id")
@@ -656,5 +660,53 @@ mod tests {
             json!("provider reasoning")
         );
         assert!(converted.chat_payload.get("thinking").is_none());
+    }
+
+    #[test]
+    fn replays_custom_tool_call_and_output_as_chat_tool_messages() {
+        let request = json!({
+            "model": "mimo-v2.5",
+            "input": [
+                {
+                    "type": "custom_tool_call",
+                    "call_id": "call_custom_1",
+                    "name": "local_shell",
+                    "input": "pwd"
+                },
+                {
+                    "type": "custom_tool_call_output",
+                    "call_id": "call_custom_1",
+                    "output": "M:/CodeHub"
+                }
+            ]
+        });
+
+        let converted = convert_responses_to_chat(
+            &request,
+            None,
+            "mimo-v2.5",
+            "mimo-v2.5",
+            false,
+            &ConversionDefaults::default(),
+            ReasoningPolicy::default(),
+        )
+        .expect("conversion should succeed");
+
+        assert_eq!(converted.chat_messages.len(), 2);
+        assert_eq!(converted.chat_messages[0]["role"], json!("assistant"));
+        assert_eq!(
+            converted.chat_messages[0]["tool_calls"][0]["function"]["name"],
+            json!("local_shell")
+        );
+        assert_eq!(
+            converted.chat_messages[0]["tool_calls"][0]["function"]["arguments"],
+            json!("{\"input\":\"pwd\"}")
+        );
+        assert_eq!(converted.chat_messages[1]["role"], json!("tool"));
+        assert_eq!(
+            converted.chat_messages[1]["tool_call_id"],
+            json!("call_custom_1")
+        );
+        assert_eq!(converted.chat_messages[1]["content"], json!("M:/CodeHub"));
     }
 }
