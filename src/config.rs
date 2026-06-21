@@ -27,6 +27,9 @@ pub struct AppConfig {
     pub default_max_output_tokens: Option<u64>,
     pub thinking_mode_enabled: bool,
     pub log_level: String,
+    pub startup_message: String,
+    pub access_in_message: String,
+    pub access_out_message: String,
     pub config_source: Option<PathBuf>,
 }
 
@@ -124,8 +127,7 @@ impl Default for HttpConfig {
             request_timeout_secs: 300,
             trust_env: false,
             http2_prior_knowledge: false,
-            // -CHANGE-VERSION-BEFORE-RELEASE
-            user_agent: "Pokaemon/v_Alpha_2026 codex-mimo-shim/0.1.9".to_string(),
+            user_agent: default_user_agent(),
         }
     }
 }
@@ -152,12 +154,18 @@ impl Default for BehaviorConfig {
 #[serde(default)]
 struct LogConfig {
     level: String,
+    startup_message: String,
+    access_in_message: String,
+    access_out_message: String,
 }
 
 impl Default for LogConfig {
     fn default() -> Self {
         Self {
-            level: "codex_mimo_shim=info,tower_http=warn".to_string(),
+            level: "codex_shim=info,tower_http=warn".to_string(),
+            startup_message: "codex-mimo-shim started".to_string(),
+            access_in_message: "MIMO-SHIM-IN".to_string(),
+            access_out_message: "MIMO-SHIM-OUT".to_string(),
         }
     }
 }
@@ -206,6 +214,9 @@ impl AppConfig {
             default_max_output_tokens: raw.generation.default_max_output_tokens,
             thinking_mode_enabled,
             log_level: raw.log.level,
+            startup_message: raw.log.startup_message,
+            access_in_message: raw.log.access_in_message,
+            access_out_message: raw.log.access_out_message,
             config_source: config_path,
         })
     }
@@ -257,4 +268,11 @@ fn sensitive_api_key_override() -> Option<String> {
     ["MIMO_API_KEY", "AK_XIAOMIMIMO_TKP", "XIAOMIMIMO_API_KEY"]
         .iter()
         .find_map(|name| env::var(name).ok().filter(|value| !value.trim().is_empty()))
+}
+
+fn default_user_agent() -> String {
+    format!(
+        "Pokaemon/v_Alpha_2026; codex-mimo-shim/{}",
+        env!("CARGO_PKG_VERSION")
+    )
 }

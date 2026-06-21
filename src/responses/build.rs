@@ -120,14 +120,14 @@ fn normalize_responses_usage(provider_usage: Option<&Value>) -> Result<Value, Sh
         ));
     };
 
-    let input_tokens =
-        number_field(usage, &["input_tokens", "prompt_tokens"]).ok_or_else(|| {
+    let input_tokens = preferred_nonzero_number_field(usage, "input_tokens", "prompt_tokens")
+        .ok_or_else(|| {
             ShimError::ProviderProtocol(
                 "missing_provider_usage: usage is missing input_tokens/prompt_tokens".to_string(),
             )
         })?;
-    let output_tokens =
-        number_field(usage, &["output_tokens", "completion_tokens"]).ok_or_else(|| {
+    let output_tokens = preferred_nonzero_number_field(usage, "output_tokens", "completion_tokens")
+        .ok_or_else(|| {
             ShimError::ProviderProtocol(
                 "missing_provider_usage: usage is missing output_tokens/completion_tokens"
                     .to_string(),
@@ -174,6 +174,17 @@ fn number_field(value: &Value, names: &[&str]) -> Option<u64> {
     names
         .iter()
         .find_map(|name| value.get(*name).and_then(Value::as_u64))
+}
+
+fn preferred_nonzero_number_field(value: &Value, primary: &str, fallback: &str) -> Option<u64> {
+    let primary_value = value.get(primary).and_then(Value::as_u64);
+    let fallback_value = value.get(fallback).and_then(Value::as_u64);
+    match (primary_value, fallback_value) {
+        (Some(0), Some(other)) if other > 0 => Some(other),
+        (Some(current), _) => Some(current),
+        (None, Some(other)) => Some(other),
+        (None, None) => None,
+    }
 }
 
 fn nested_number_field(value: &Value, names: &[(&str, &str)]) -> Option<u64> {
@@ -300,5 +311,47 @@ mod tests {
             built.updated_chat_messages[0]["reasoning_content"],
             json!("provider reasoning")
         );
+    }
+
+    #[test]
+    fn prefers_openai_usage_fields_over_zeroed_nonstandard_fields() {
+        let usage = json!({
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "prompt_tokens": 17467,
+            "completion_tokens": 20,
+            "total_tokens": 17487,
+            "prompt_tokens_details": {
+                "cached_tokens": 17408
+            }
+        });
+
+        let normalized = normalize_responses_usage(Some(&usage)).expect("usage should normalize");
+        let observed = ProviderTokenStats::from_usage(Some(&usage));
+
+        assert_eq!(normalized["input_tokens"], json!(17467));
+        assert_eq!(normalized["output_tokens"], json!(20));
+        assert_eq!(observed.input_tokens, Some(17467));
+        assert_eq!(observed.output_tokens, Some(20));
+        assert_eq!(observed.cached_tokens, Some(17408));
+    }
+
+    #[test]
+    fn keeps_nonstandard_usage_fields_when_they_have_real_values() {
+        let usage = json!({
+            "input_tokens": 321,
+            "output_tokens": 45,
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_tokens": 366
+        });
+
+        let normalized = normalize_responses_usage(Some(&usage)).expect("usage should normalize");
+        let observed = ProviderTokenStats::from_usage(Some(&usage));
+
+        assert_eq!(normalized["input_tokens"], json!(321));
+        assert_eq!(normalized["output_tokens"], json!(45));
+        assert_eq!(observed.input_tokens, Some(321));
+        assert_eq!(observed.output_tokens, Some(45));
     }
 }

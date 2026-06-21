@@ -79,7 +79,12 @@ async fn main() -> anyhow::Result<()> {
         .with_state(state);
 
     let listener = TcpListener::bind(config.bind).await?;
-    info!(bind = %config.bind, config = ?config.config_source, "codex-mimo-shim started");
+    info!(
+        bind = %config.bind,
+        config = ?config.config_source,
+        "{}",
+        config.startup_message
+    );
     axum::serve(
         listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),
@@ -405,7 +410,8 @@ fn access_in(state: &AppState, _addr: SocketAddr, path: &str, stream: bool, trac
         unstream = !stream,
         path = path,
         trace_id = trace_id,
-        "MIMO-SHIM-IN"
+        "{}",
+        state.config.access_in_message
     );
 }
 
@@ -461,7 +467,8 @@ fn access_out(
         total_ms = total_ms,
         status = status,
         error = error.unwrap_or("-"),
-        "MIMO-SHIM-OUT"
+        "{}",
+        state.config.access_out_message
     );
 }
 
