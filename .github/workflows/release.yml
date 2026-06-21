@@ -14,13 +14,13 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Release version, e.g. v0.1.6"
+        description: "Release version, e.g. v0.1.10"
         required: false
         type: string
       binary_name:
         description: "Release binary name without .exe"
         required: true
-        default: "codex-mimo-shim"
+        default: "codex-shim"
         type: string
       rust_toolchain:
         description: "Rust toolchain"
@@ -66,7 +66,7 @@ jobs:
 
           echo "is_release=$is_release" >> "$GITHUB_OUTPUT"
           echo "release_version=$release_version" >> "$GITHUB_OUTPUT"
-          echo "binary_name=${{ inputs.binary_name || 'codex-mimo-shim' }}" >> "$GITHUB_OUTPUT"
+          echo "binary_name=${{ inputs.binary_name || 'codex-shim' }}" >> "$GITHUB_OUTPUT"
           echo "rust_toolchain=${{ inputs.rust_toolchain || 'stable' }}" >> "$GITHUB_OUTPUT"
 
   validate:

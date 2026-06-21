@@ -31,6 +31,7 @@ generation:
 
 http:
   request_timeout_secs: 300
+  trust_env: false
   http2_prior_knowledge: false
 
 behavior:
@@ -39,4 +40,7 @@ behavior:
   forward_parallel_tool_calls: true
 
 log:
-  level: codex_mimo_shim=info,tower_http=warn
+  level: codex_shim=info,tower_http=warn
+  startup_message: codex-mimo-shim started
+  access_in_message: MIMO-SHIM-IN
+  access_out_message: MIMO-SHIM-OUT

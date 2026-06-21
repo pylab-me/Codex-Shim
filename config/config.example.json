@@ -15,24 +15,27 @@
     "trust_env": false
   },
   "log": {
-    "level": "codex_mimo_shim=info,tower_http=warn"
+    "access_in_message": "MIMO-SHIM-IN",
+    "access_out_message": "MIMO-SHIM-OUT",
+    "level": "codex_shim=info,tower_http=warn",
+    "startup_message": "codex-shim started"
   },
   "server": {
     "host": "127.0.0.1",
     "port": 33300
   },
   "upstream": {
+    "aliases": {
+      "codex-auto-review": "mimo-v2.5"
+    },
     "api_key": "NO-KEY",
     "base_url": "https://token-plan-cn.xiaomimimo.com/v1",
+    "fallback_unknown_model_to_default": true,
     "model": "mimo-v2.5",
     "models": [
       "mimo-v2.5",
       "mimo-v2.5-pro"
     ],
-    "aliases": {
-      "codex-auto-review": "mimo-v2.5"
-    },
-    "fallback_unknown_model_to_default": true,
     "thinking": {
       "enabled": false
     }

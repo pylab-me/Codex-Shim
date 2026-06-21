@@ -11,6 +11,7 @@ Codex CLI / Responses client
 ```
 
 > Not only Xiaomi MIMO, but also deepseek, longcat, GLM.
+
 > `Codex-Shim` 不单单支持小米，更加支持Deepseek，美团的LongCat，智谱的GLM（均进行本地测试）。
 
 ## Features and Limitations / 功能与限制
@@ -23,12 +24,12 @@ Codex CLI / Responses client
 
 ### Recommended codex-cli version / 推荐的 codex-cli 版本
 
-|    Project version / 项目版本 | codex-cli version / 搭配 codex-cli 版本 | Notes / 注释                    |
-|--------------------------:|------------------------------------:|-------------------------------|
-|                    v0.1.9 |                           `0.116.0` | Recommended / 推荐使用            |
-|                    v0.1.9 |                           `0.119.0` | before Codex-cli change tools |
-|                Preview UI |                           `0.130.0` | -                             |
-|                Preview UI |                           `0.141.0` | Coming soon (in local test)   |
+|         Project version / 项目版本 | codex-cli version / 搭配 codex-cli 版本 | Notes / 注释                    |
+|-------------------------------:|------------------------------------:|-------------------------------|
+|                v0.1.x (latest) |                           `0.116.0` | Recommended / 推荐使用            |
+|                v0.1.x (latest) |                           `0.119.0` | before Codex-cli change tools |
+|                     Preview UI |                           `0.130.0` | -                             |
+|                     Preview UI |                           `0.141.0` | Coming soon (in local test)   |
 
 > v0.1.x will keep open source and do some code clean.
 
@@ -171,7 +172,10 @@ behavior:
   forward_parallel_tool_calls: true
 
 log:
-  level: codex_mimo_shim=info,tower_http=warn
+  level: codex_shim=info,tower_http=warn
+  startup_message: codex-mimo-shim started
+  access_in_message: MIMO-SHIM-IN
+  access_out_message: MIMO-SHIM-OUT
 ```
 
 Run:
@@ -203,6 +207,12 @@ experimental_bearer_token = "no-api-key"
 ## Access log
 
 Access log defaults to enabled and does not print prompt/body/tool result.
+
+`http.user_agent` is configurable. If omitted, the built-in default is
+`Pokaemon/v_Alpha_2026; codex-mimo-shim/<current version>`.
+
+`log.startup_message`, `log.access_in_message`, and `log.access_out_message`
+are also configurable if you want different log prefixes.
 
 Example:
 
